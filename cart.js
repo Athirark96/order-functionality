@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
 import { getStorage, ref, listAll, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
-import { getDatabase, ref as dbRef, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getDatabase, ref as dbRef, onValue, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 // Your Firebase configuration
 const firebaseConfig = {
@@ -20,7 +20,6 @@ const analytics = getAnalytics(app);
 const storage = getStorage(app);
 const database = getDatabase(app);
 
-
 // Function to list all images
 function listAllImages() {
   var listRef = ref(storage, "CartFolder/cart/");
@@ -29,11 +28,13 @@ function listAllImages() {
       res.items.forEach((itemRef) => {
         getDownloadURL(itemRef).then((url) => {
           checkImageAndFetchPrice(itemRef.name, url);
+        }).catch((error) => {
+          console.error('Error getting download URL:', error);
         });
       });
     })
     .catch((error) => {
-      console.log("Error listing images: ", error);
+      console.error('Error listing images:', error);
     });
 }
 
@@ -47,11 +48,6 @@ async function checkIfImageExistsInBottle(imageFileName) {
     await getDownloadURL(imageRef); // This will throw an error if the image does not exist
     return true;
   } catch (error) {
-    if (error.code === 'storage/object-not-found') {
-      console.error(`Image '${imageFileName}' not found in /bottle folder.`);
-    } else {
-      console.error(`Error checking image '${imageFileName}' in /bottle folder.`, error);
-    }
     return false;
   }
 }
@@ -63,7 +59,6 @@ async function checkIfImageExistsInTshirt(imageFileName) {
     await getDownloadURL(imageRef); // This will throw an error if the image does not exist
     return true;
   } catch (error) {
-    console.error(`Error checking image '${imageFileName}' in /tshirt folder.`, error);
     return false;
   }
 }
@@ -205,78 +200,110 @@ function calculateGrandTotal() {
   document.getElementById('grand-total').innerHTML = `Grand Total: $${grandTotal.toFixed(2)}`;
 }
 
-function checkout() {
-  // Display order successful message
-  alert('Order successful!');
+// Function to generate a unique order ID
+function generateOrderId() {
+  return 'order_' + new Date().getTime();
+}
 
-  // Retrieve username (assuming it's available in your application)
-  const username = "JohnDoe"; // Replace with actual username retrieval logic
 
-  // Prepare order data
-  const orderData = {
-    username: username,
-    products: [], // This array will store details of each product in the order
-    orderDate: new Date().toISOString() // Current date as ISO string
-  };
 
-  // Iterate over the table rows to gather product details
-  const tableBody = document.getElementById('cart-table').getElementsByTagName('tbody')[0];
-  for (let row of tableBody.rows) {
-    const productName = row.cells[1].innerText; // Assuming product type is in cell 1
-    const quantity = parseInt(row.cells[2].getElementsByTagName('span')[0].innerHTML); // Quantity from span in cell 2
-    const unitPrice = parseFloat(row.cells[3].innerHTML.replace('$', '')); // Price from cell 3
-
-    // Add product details to orderData
-    orderData.products.push({
-      productName: productName,
-      quantity: quantity,
-      unitPrice: unitPrice
+// Function to collect order items and quantities
+function collectOrderDetails() {
+    const orderItems = [];
+    const quantity = {};
+  
+    const tableBody = document.getElementById('cart-table').getElementsByTagName('tbody')[0];
+    for (let row of tableBody.rows) {
+      const name = row.cells[0].getElementsByTagName('img')[0].alt;
+      const productType = row.cells[1].innerHTML;
+      const qty = parseInt(row.cells[2].getElementsByTagName('span')[0].innerHTML);
+  
+      orderItems.push({ name, productType });
+      quantity[name] = qty;
+    }
+  
+    console.log('Collected Order Items:', orderItems);
+    console.log('Collected Quantities:', quantity);
+  
+    return { orderItems, quantity };
+  }
+  
+  // Function to add order details to the database
+  function addOrderToDatabase(username, orderItems, quantity, orderDate) {
+    const orderId = generateOrderId();
+    const orderRef = dbRef(database, `orders/${orderId}`);
+  
+    const sanitizedOrderItems = orderItems.map(item => ({
+      ...item,
+      name: item.name.replace(/[.#$/\[\]]/g, '_')
+    }));
+  
+    const sanitizedQuantity = {};
+    for (const key in quantity) {
+      sanitizedQuantity[key.replace(/[.#$/\[\]]/g, '_')] = quantity[key];
+    }
+  
+    const orderDetails = {
+      username,
+      orderItems: sanitizedOrderItems,
+      quantity: sanitizedQuantity,
+      orderDate
+    };
+  
+    console.log('Order Details to be added:', orderDetails);
+  
+    set(orderRef, orderDetails)
+      .then(() => {
+        console.log('Order details added to database successfully.');
+      })
+      .catch((error) => {
+        console.error('Error adding order details to database:', error);
+      });
+  }
+  
+  // Function to handle the checkout process
+  function checkout() {
+    const username = 'testUser'; // Replace with actual username
+    const { orderItems, quantity } = collectOrderDetails();
+    const orderDate = new Date().toISOString();
+  
+    // Add order details to the database
+    addOrderToDatabase(username, orderItems, quantity, orderDate);
+  
+    // Display order successful message
+    alert('Order successful!');
+  
+    // Clear the cart folder in Firebase Storage
+    clearCartFromFirebase();
+  
+    // Clear the cart table in the UI
+    const tableBody = document.getElementById('cart-table').getElementsByTagName('tbody')[0];
+    tableBody.innerHTML = ''; // Clearing all rows
+    document.getElementById('grand-total').innerHTML = `Grand Total: $0.00`;
+  }
+  
+  // Function to clear the cart folder in Firebase Storage
+  function clearCartFromFirebase() {
+    const cartRef = ref(storage, 'CartFolder/cart/');
+  
+    listAll(cartRef).then((res) => {
+      res.items.forEach((itemRef) => {
+        deleteObject(itemRef).then(() => {
+          console.log(`Deleted ${itemRef.fullPath} successfully.`);
+        }).catch((error) => {
+          console.error(`Error deleting ${itemRef.fullPath}:`, error);
+        });
+      });
+    }).catch((error) => {
+      console.error("Error listing items in 'cart' folder:", error);
     });
   }
-
-  // Get a reference to the 'orders' node in Firebase Database
-  const ordersRef = dbRef(database, '/orders');
-
-  // Generate a new child node with a unique key using push()
-  const newOrderRef = push(ordersRef);
-
-  // Set the order data under the generated key
-  newOrderRef.set(orderData)
-    .then(() => {
-      console.log('Order details added to database successfully:', orderData);
-
-      // Clear the cart folder in Firebase Storage
-      clearCartFromFirebase();
-
-      // Clear the cart table in the UI
-      tableBody.innerHTML = ''; // Clearing all rows
-      document.getElementById('grand-total').innerHTML = `Grand Total: $0.00`;
-    })
-    .catch((error) => {
-      console.error('Error adding order details to database:', error);
-    });
-}
-
-function clearCartFromFirebase() {
-  const cartRef = ref(storage, 'CartFolder/cart/');
-
-  listAll(cartRef).then((res) => {
-    res.items.forEach((itemRef) => {
-      deleteObject(itemRef).then(() => {
-        console.log(`Deleted ${itemRef.fullPath} successfully.`);
-      }).catch((error) => {
-        console.error(`Error deleting ${itemRef.fullPath}:`, error);
-      });
-    });
-  }).catch((error) => {
-    console.error("Error listing items in 'cart' folder:", error);
+  
+  document.getElementById('checkoutBtn').addEventListener('click', () => {
+    checkout();
   });
-}
-
-document.getElementById('checkoutBtn').addEventListener('click', () => {
-  checkout();
-});
-
-document.getElementById('backToHomeBtn').addEventListener('click', () => {
-  window.location.href = 'login.html'; // Redirect to login.html
-});
+  
+  document.getElementById('backToHomeBtn').addEventListener('click', () => {
+    window.location.href = 'login.html'; // Redirect to login.html
+  });
+ 
