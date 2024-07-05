@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Order</title>
+</head>
+<body>
+
+    <h1>Add Order</h1>
+
+    <form id="orderForm">
+        <label for="username">Username:</label><br>
+        <input type="text" id="username" name="username" required><br><br>
+
+        <label for="productImage">Product Image URL:</label><br>
+        <input type="text" id="productImage" name="productImage" required><br><br>
+
+        <label for="quantity">Quantity:</label><br>
+        <input type="number" id="quantity" name="quantity" required><br><br>
+
+        <label for="dateOfOrder">Date of Order:</label><br>
+        <input type="date" id="dateOfOrder" name="dateOfOrder" required><br><br>
+
+        <button type="submit">Submit Order</button>
+    </form>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script>
+        // Firebase configuration
+        var firebaseConfig = {
+            apiKey: "AIzaSyDczLLPnaREY3SahAMeKJ-DOMyVENmWwLk",
+  authDomain: "crex-f9f68.firebaseapp.com",
+  databaseURL: "https://crex-f9f68-default-rtdb.firebaseio.com",
+  projectId: "crex-f9f68",
+  storageBucket: "crex-f9f68.appspot.com",
+  messagingSenderId: "209664661907",
+  appId: "1:209664661907:web:933435dab65ebb20913066"
+        };
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+
+        // Reference to orders collection
+        var ordersRef = firebase.database().ref('orders');
+
+        // Handle form submission
+        document.getElementById('orderForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            // Get form values
+            var username = document.getElementById('username').value;
+            var productImage = document.getElementById('productImage').value;
+            var quantity = parseInt(document.getElementById('quantity').value);
+            var dateOfOrder = document.getElementById('dateOfOrder').value;
+
+            // Generate unique order ID (simulate auto-increment)
+            var newOrderId = Date.now(); // Using timestamp as a unique ID
+
+            // Create new order object
+            var newOrder = {
+                orderId: newOrderId,
+                username: username,
+                productImage: productImage,
+                quantity: quantity,
+                dateOfOrder: dateOfOrder
+            };
+
+            // Push new order to Firebase
+            ordersRef.child('order' + newOrderId).set(newOrder)
+                .then(function() {
+                    console.log('Order added successfully!');
+                    // Clear form fields after submission
+                    document.getElementById('orderForm').reset();
+                })
+                .catch(function(error) {
+                    console.error('Error adding order: ', error);
+                });
+        });
+    </script>
+</body>
+</html>
